@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>deneyy/deney.py — live repo browser</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #12161b;
+    --panel-border: #22282f;
+    --text: #d6dce3;
+    --muted: #6b7684;
+    --accent: #e8a33d;
+    --accent-dim: #8a6224;
+    --new: #7ee787;
+    --dir: #6cc6d9;
+    --error: #e5534b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(232, 163, 61, 0.06), transparent),
+      radial-gradient(ellipse 700px 500px at 100% 10%, rgba(108, 198, 217, 0.05), transparent);
+    color: var(--text);
+    font-family: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+    min-height: 100vh;
+    padding: 48px 20px 80px;
+  }
+
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  header {
+    margin-bottom: 28px;
+  }
+
+  .repo-path {
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+
+  .repo-path a { color: var(--dir); text-decoration: none; }
+  .repo-path a:hover { text-decoration: underline; }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 6px 0 4px;
+    color: var(--text);
+  }
+
+  .desc {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .term {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    margin-top: 26px;
+    overflow: hidden;
+  }
+
+  .term-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--panel-border);
+    background: #0e1115;
+  }
+
+  .term-bar .dots { display: flex; gap: 6px; }
+  .term-bar .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #2a3038;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  .pulse {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--new);
+    box-shadow: 0 0 0 0 rgba(126,231,135,0.6);
+    animation: pulse 2s infinite;
+  }
+  .pulse.err { background: var(--error); animation: none; }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(126,231,135,0.55); }
+    70% { box-shadow: 0 0 0 6px rgba(126,231,135,0); }
+    100% { box-shadow: 0 0 0 0 rgba(126,231,135,0); }
+  }
+
+  .term-body {
+    padding: 16px 18px 20px;
+    font-size: 13.5px;
+    line-height: 1.7;
+  }
+
+  .prompt-line {
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .prompt-line .sym { color: var(--accent); }
+
+  .file-list { list-style: none; margin: 0; padding: 0; }
+
+  .file-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px dashed rgba(255,255,255,0.04);
+  }
+  .file-row:last-child { border-bottom: none; }
+
+  .ftype {
+    color: var(--muted);
+    width: 16px;
+    flex-shrink: 0;
+  }
+  .ftype.dir { color: var(--dir); }
+
+  .fname a {
+    color: var(--text);
+    text-decoration: none;
+    word-break: break-all;
+  }
+  .fname a:hover { color: var(--accent); text-decoration: underline; }
+
+  .fmeta {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 11.5px;
+    flex-shrink: 0;
+    padding-left: 12px;
+  }
+
+  .new-tag {
+    color: var(--bg);
+    background: var(--new);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 8px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+
+  .empty-state, .error-state {
+    color: var(--muted);
+    padding: 6px 0;
+  }
+  .error-state { color: var(--error); }
+
+  footer {
+    margin-top: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11.5px;
+    color: var(--muted);
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .cursor {
+    display: inline-block;
+    width: 7px; height: 14px;
+    background: var(--accent);
+    margin-left: 2px;
+    vertical-align: middle;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  a.ext-link { color: var(--dir); text-decoration: none; }
+  a.ext-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="repo-path">
+      <a href="https://github.com/deneyy" target="_blank" rel="noopener">deneyy</a> / <a href="https://github.com/deneyy/deney.py" target="_blank" rel="noopener">deney.py</a>
+    </div>
+    <h1>deney.py — live file browser</h1>
+    <p class="desc">basically a repo with python scripts that i personally find useful that you could use. This page polls GitHub directly and refreshes on its own — add a file to the repo and it shows up here without a reload.</p>
+  </header>
+
+  <div class="term">
+    <div class="term-bar">
+      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="status">
+        <span class="pulse" id="pulseDot"></span>
+        <span id="statusText">connecting…</span>
+      </div>
+    </div>
+    <div class="term-body">
+      <div class="prompt-line"><span class="sym">$</span> git ls-tree -r main --name-only<span class="cursor"></span></div>
+      <ul class="file-list" id="fileList">
+        <li class="empty-state">Loading repository contents…</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <span id="lastUpdated">Last checked: —</span>
+    <span id="refreshInfo">Auto-refreshes every 30s</span>
+  </footer>
+
+</div>
+
+<script>
+  const OWNER = "deneyy";
+  const REPO = "deney.py";
+  const BRANCH = "main";
+  const POLL_MS = 30000;
+
+  const fileListEl = document.getElementById("fileList");
+  const statusTextEl = document.getElementById("statusText");
+  const pulseDotEl = document.getElementById("pulseDot");
+  const lastUpdatedEl = document.getElementById("lastUpdated");
+
+  let knownPaths = new Set();
+  let firstLoad = true;
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function iconFor(path, type) {
+    if (type === "tree") return "📁";
+    if (path.endsWith(".py")) return "🐍";
+    if (path.toLowerCase().includes("readme")) return "📄";
+    return "📄";
+  }
+
+  async function fetchTree() {
+    const url = `https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${BRANCH}?recursive=1`;
+    const res = await fetch(url, { headers: { "Accept": "application/vnd.github+json" } });
+    if (!res.ok) {
+      if (res.status === 403) throw new Error("rate limited by GitHub — will retry");
+      throw new Error(`GitHub API error (${res.status})`);
+    }
+    const data = await res.json();
+    return data.tree || [];
+  }
+
+  function render(tree) {
+    // sort: directories first, then files, alphabetically
+    const items = tree
+      .filter(i => i.type === "blob" || i.type === "tree")
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === "tree" ? -1 : 1;
+        return a.path.localeCompare(b.path);
+      });
+
+    if (items.length === 0) {
+      fileListEl.innerHTML = '<li class="empty-state">Repository is empty.</li>';
+      return;
+    }
+
+    const currentPaths = new Set(items.map(i => i.path));
+    const isNew = (path) => !firstLoad && !knownPaths.has(path);
+
+    fileListEl.innerHTML = items.map(item => {
+      const blobUrl = item.type === "blob"
+        ? `https://github.com/${OWNER}/${REPO}/blob/${BRANCH}/${item.path}`
+        : `https://github.com/${OWNER}/${REPO}/tree/${BRANCH}/${item.path}`;
+      const rawUrl = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${item.path}`;
+      const meta = item.type === "blob" && item.size != null ? formatBytes(item.size) : "dir";
+      const newTag = isNew(item.path) ? '<span class="new-tag">new</span>' : "";
+
+      return `
+        <li class="file-row">
+          <span class="ftype ${item.type === 'tree' ? 'dir' : ''}">${iconFor(item.path, item.type)}</span>
+          <span class="fname">
+            <a href="${blobUrl}" target="_blank" rel="noopener">${item.path}</a>
+            ${item.type === "blob" ? `· <a class="ext-link" href="${rawUrl}" target="_blank" rel="noopener">raw</a>` : ""}
+            ${newTag}
+          </span>
+          <span class="fmeta">${meta}</span>
+        </li>
+      `;
+    }).join("");
+
+    knownPaths = currentPaths;
+    firstLoad = false;
+  }
+
+  async function poll() {
+    try {
+      const tree = await fetchTree();
+      render(tree);
+      statusTextEl.textContent = "live";
+      pulseDotEl.classList.remove("err");
+      lastUpdatedEl.textContent = "Last checked: " + new Date().toLocaleTimeString();
+    } catch (err) {
+      statusTextEl.textContent = err.message || "error fetching repo";
+      pulseDotEl.classList.add("err");
+      if (firstLoad) {
+        fileListEl.innerHTML = `<li class="error-state">Couldn't load repository: ${err.message}</li>`;
+      }
+      lastUpdatedEl.textContent = "Last attempt: " + new Date().toLocaleTimeString();
+    }
+  }
+
+  poll();
+  setInterval(poll, POLL_MS);
+</script>
+
+</body>
+</html>
