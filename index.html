@@ -2,36 +2,189 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>deneyy/deney.py</title>
+<title>Index of deney.py</title>
 </head>
 <body>
 
-<h1>deneyy/deney.py</h1>
-<p><a href="https://github.com/deneyy/deney.py" target="_blank">https://github.com/deneyy/deney.py</a></p>
-<p id="statusText">connecting…</p>
-<p id="lastUpdated">Last checked: —</p>
+<h1 id="heading">Index of /</h1>
 
-<ul id="fileList">
-  <li>Loading repository contents…</li>
-</ul>
+<table border="0" cellpadding="4" cellspacing="0">
+  <tr>
+    <th align="left">Name</th>
+    <th align="left">Last modified</th>
+    <th align="right">Size</th>
+    <th align="left">Description</th>
+  </tr>
+  <tr><td colspan="4"><hr></td></tr>
+  <tbody id="listBody">
+    <tr><td colspan="4">Loading repository contents…</td></tr>
+  </tbody>
+  <tr><td colspan="4"><hr></td></tr>
+</table>
+
+<address id="statusLine">connecting…</address>
 
 <script>
   const OWNER = "deneyy";
   const REPO = "deney.py";
   const BRANCH = "main";
   const POLL_MS = 30000;
+  const HIDDEN_NAMES = ["index.html"]; // hidden from listing, case-insensitive
 
-  const fileListEl = document.getElementById("fileList");
-  const statusTextEl = document.getElementById("statusText");
-  const lastUpdatedEl = document.getElementById("lastUpdated");
+  const headingEl = document.getElementById("heading");
+  const listBodyEl = document.getElementById("listBody");
+  const statusLineEl = document.getElementById("statusLine");
 
-  let knownPaths = new Set();
+  let root = null;                 // full tree, rebuilt from GitHub on every poll
+  let knownPaths = new Set();       // for detecting newly added files/dirs
   let firstLoad = true;
+  const lastModCache = new Map();   // path -> date string, fetched lazily per directory
+
+  function currentPath() {
+    return decodeURIComponent(location.hash.replace(/^#/, ""));
+  }
 
   function formatBytes(bytes) {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    if (bytes == null) return "-";
+    if (bytes < 1024) return bytes + "";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + "K";
+    return (bytes / (1024 * 1024)).toFixed(1) + "M";
+  }
+
+  function descriptionFor(name, type) {
+    if (type === "tree") return "Directory";
+    const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+    const map = {
+      py: "Python script", php: "PHP source", css: "Stylesheet", js: "JavaScript",
+      json: "JSON data", md: "Markdown text", html: "HTML document", txt: "Text file",
+      png: "PNG image", jpg: "JPEG image", jpeg: "JPEG image", gif: "GIF image"
+    };
+    return map[ext] || "File";
+  }
+
+  function buildFileSystem(flatItems) {
+    const rootNode = { name: "", path: "", type: "tree", children: {} };
+    for (const item of flatItems) {
+      const parts = item.path.split("/");
+      let node = rootNode;
+      let acc = "";
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        acc = acc ? acc + "/" + part : part;
+        const isLast = i === parts.length - 1;
+        if (!node.children[part]) {
+          node.children[part] = {
+            name: part,
+            path: acc,
+            type: isLast ? item.type : "tree",
+            size: isLast && item.type === "blob" ? item.size : undefined,
+            children: {}
+          };
+        }
+        node = node.children[part];
+      }
+    }
+    return rootNode;
+  }
+
+  function findNode(path) {
+    if (!root) return null;
+    if (!path) return root;
+    const parts = path.split("/");
+    let node = root;
+    for (const part of parts) {
+      if (!node.children[part]) return null;
+      node = node.children[part];
+    }
+    return node;
+  }
+
+  async function fetchLastModified(path) {
+    if (lastModCache.has(path)) return lastModCache.get(path);
+    try {
+      const url = `https://api.github.com/repos/${OWNER}/${REPO}/commits?path=${encodeURIComponent(path)}&sha=${BRANCH}&per_page=1`;
+      const res = await fetch(url, { headers: { "Accept": "application/vnd.github+json" } });
+      if (!res.ok) throw new Error("rate limited");
+      const data = await res.json();
+      const dateStr = data[0]?.commit?.author?.date;
+      const formatted = dateStr
+        ? new Date(dateStr).toLocaleString(undefined, {
+            year: "numeric", month: "2-digit", day: "2-digit",
+            hour: "2-digit", minute: "2-digit"
+          })
+        : "-";
+      lastModCache.set(path, formatted);
+      return formatted;
+    } catch (e) {
+      lastModCache.set(path, "-");
+      return "-";
+    }
+  }
+
+  function navigate(path) {
+    location.hash = encodeURIComponent(path);
+  }
+
+  function render() {
+    const path = currentPath();
+    const node = findNode(path);
+
+    headingEl.textContent = "Index of /" + path;
+    document.title = "Index of /" + path;
+
+    if (!node || node.type !== "tree") {
+      listBodyEl.innerHTML = `<tr><td colspan="4">Directory not found.</td></tr>`;
+      return;
+    }
+
+    const entries = Object.values(node.children)
+      .filter(e => !HIDDEN_NAMES.includes(e.name.toLowerCase()))
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === "tree" ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+
+    let rowsHtml = "";
+
+    if (path) {
+      const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+      rowsHtml += `<tr><td><a href="javascript:void(0)" onclick="navigate('${parentPath}')">Parent Directory</a></td><td>-</td><td align="right">-</td><td>&nbsp;</td></tr>`;
+    }
+
+    if (entries.length === 0 && !path) {
+      rowsHtml += `<tr><td colspan="4">Repository is empty.</td></tr>`;
+    }
+
+    for (const entry of entries) {
+      const isNew = !firstLoad && !knownPaths.has(entry.path);
+      const newTag = isNew ? " [NEW]" : "";
+      let nameCell;
+      if (entry.type === "tree") {
+        nameCell = `<a href="javascript:void(0)" onclick="navigate('${entry.path}')">${entry.name}/</a>${newTag}`;
+      } else {
+        const blobUrl = `https://github.com/${OWNER}/${REPO}/blob/${BRANCH}/${entry.path}`;
+        const rawUrl = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${entry.path}`;
+        nameCell = `<a href="${blobUrl}" target="_blank">${entry.name}</a> (<a href="${rawUrl}" target="_blank">raw</a>)${newTag}`;
+      }
+      const sizeCell = entry.type === "blob" ? formatBytes(entry.size) : "-";
+      const descCell = descriptionFor(entry.name, entry.type);
+      rowsHtml += `<tr id="row-${btoa(entry.path)}">
+        <td>${nameCell}</td>
+        <td class="lastmod">…</td>
+        <td align="right">${sizeCell}</td>
+        <td>${descCell}</td>
+      </tr>`;
+    }
+
+    listBodyEl.innerHTML = rowsHtml;
+
+    // fetch last-modified lazily for entries in this directory, cached per path
+    for (const entry of entries) {
+      fetchLastModified(entry.path).then(dateStr => {
+        const row = document.getElementById("row-" + btoa(entry.path));
+        if (row) row.querySelector(".lastmod").textContent = dateStr;
+      });
+    }
   }
 
   async function fetchTree() {
@@ -45,55 +198,25 @@
     return data.tree || [];
   }
 
-  function render(tree) {
-    const items = tree
-      .filter(i => i.type === "blob" || i.type === "tree")
-      .sort((a, b) => {
-        if (a.type !== b.type) return a.type === "tree" ? -1 : 1;
-        return a.path.localeCompare(b.path);
-      });
-
-    if (items.length === 0) {
-      fileListEl.innerHTML = "<li>Repository is empty.</li>";
-      return;
-    }
-
-    const currentPaths = new Set(items.map(i => i.path));
-    const isNew = (path) => !firstLoad && !knownPaths.has(path);
-
-    fileListEl.innerHTML = items.map(item => {
-      const blobUrl = item.type === "blob"
-        ? `https://github.com/${OWNER}/${REPO}/blob/${BRANCH}/${item.path}`
-        : `https://github.com/${OWNER}/${REPO}/tree/${BRANCH}/${item.path}`;
-      const rawUrl = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${item.path}`;
-      const meta = item.type === "blob" && item.size != null ? formatBytes(item.size) : "dir";
-      const newTag = isNew(item.path) ? " [NEW]" : "";
-
-      return `<li>
-        ${item.type === "tree" ? "[dir] " : ""}<a href="${blobUrl}" target="_blank">${item.path}</a>
-        ${item.type === "blob" ? ` (<a href="${rawUrl}" target="_blank">raw</a>)` : ""}
-        - ${meta}${newTag}
-      </li>`;
-    }).join("");
-
-    knownPaths = currentPaths;
-    firstLoad = false;
-  }
-
   async function poll() {
     try {
-      const tree = await fetchTree();
-      render(tree);
-      statusTextEl.textContent = "Status: live";
-      lastUpdatedEl.textContent = "Last checked: " + new Date().toLocaleTimeString();
+      const flatItems = await fetchTree();
+      root = buildFileSystem(flatItems);
+      render();
+      const allPaths = new Set(flatItems.map(i => i.path));
+      knownPaths = allPaths;
+      firstLoad = false;
+      statusLineEl.textContent = "Live — last checked " + new Date().toLocaleTimeString() +
+        " — Apache/2.4.58 style index for github.com/" + OWNER + "/" + REPO;
     } catch (err) {
-      statusTextEl.textContent = "Status: " + (err.message || "error fetching repo");
+      statusLineEl.textContent = "Error: " + (err.message || "could not fetch repository");
       if (firstLoad) {
-        fileListEl.innerHTML = `<li>Couldn't load repository: ${err.message}</li>`;
+        listBodyEl.innerHTML = `<tr><td colspan="4">Couldn't load repository: ${err.message}</td></tr>`;
       }
-      lastUpdatedEl.textContent = "Last attempt: " + new Date().toLocaleTimeString();
     }
   }
+
+  window.addEventListener("hashchange", render);
 
   poll();
   setInterval(poll, POLL_MS);
